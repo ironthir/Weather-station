@@ -5,39 +5,36 @@ import time
 from datetime import datetime, timedelta
 import matplotlib.pyplot as plt
 import numpy as np
-from enum import Enum
-
-from matplotlib.dates import DateFormatter
-from matplotlib.ticker import MaxNLocator
+import tkinter as tk
+from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+from matplotlib.figure import Figure
 
 POLLUTION_SENSOR_ID = 56949
 WEATHER_SENSOR_ID = 56950
 
 JSON_PATH = 'localSensor.json'
 
-INTERVAL_SECONDS = 300
-
+INTERVAL_SECONDS = 5
 
 def filterPm10(obj):
     return True if obj["value_type"] == "P1" else False
 
-
 def filterPm25(obj):
     return True if obj["value_type"] == "P2" else False
-
 
 def filterByTimestamp(obj, timestamp):
     return obj["timestamp"] == timestamp
 
-
 def floor_to_nearest_minute(timestamp_str):
     timestamp = datetime.strptime(timestamp_str, '%Y-%m-%d %H:%M:%S')
-
     minute_difference = timestamp.second + timestamp.microsecond / 1e6
     rounded_timestamp = timestamp - timedelta(seconds=minute_difference)
-
     return rounded_timestamp.strftime('%Y-%m-%d %H:%M:%S')
 
+def get_data_set(data, prop):
+    timestamps = [item["timestamp"] for item in data if prop in item]
+    values = [float(x[prop]) for x in data if prop in x]
+    return (timestamps, values)
 
 def fetch_data_from_api():
     try:
@@ -74,8 +71,7 @@ def fetch_data_from_api():
         print(f"Error fetching data from API: {e}")
         return None
 
-
-def appendToJsonFile(data):
+def append_to_json_file(data):
     try:
         with open(JSON_PATH, 'r') as file:
             existing_data = json.load(file)
@@ -88,56 +84,56 @@ def appendToJsonFile(data):
     with open(JSON_PATH, 'w') as file:
         json.dump(sortedData, file, indent=2)
 
-
-TITLES = ["Temperatura - 24H",  "Ciśnienie - 24h", "Wilgotność - 24h", "Temperatura - 7d", "Ciśnienie - 7d", "Wilgotność - 7d"]
+TITLES = ["Temperatura - 24H",  "Ciśnienie - 24h", "Wilgotność - 24h", "Temperatura - 7d", "Ciśnienie - 7d",
+          "Wilgotność - 7d", "PM 2.5 - 24h", "PM 10 - 24h", "PLACEHOLDER", "PM 2.5 - 7d", "PM 10 - 7d"]
 Y_LABELS = ["°C", ""]
 
-def display_multiple_graphs(data_sets):
-    def round_to_nearest_hour(dt):
-        return dt.replace(second=0, microsecond=0, minute=0)
-    num_rows = 3
-    num_cols = 3
+def display_plots_in_window(data_sets):
+    root = tk.Tk()
+    root.title("Pogoda w ostatnim czasie")
 
-    fig, axes = plt.subplots(num_rows, num_cols, figsize=(12, 8))
-    fig.suptitle("Pogoda w ostatnim czasie", fontsize=16)
+
+    num_rows = 4
+    num_cols = 3
 
     for i, (x_values, y_values) in enumerate(data_sets):
         row = i // num_cols
         col = i % num_cols
 
-        axes[row, col].plot(x_values, y_values)
-        axes[row, col].grid(True)
-        print(row)
-        if row % 2 == 0:
-            axes[row, col].xaxis.set_major_locator(plt.MaxNLocator(4))
-            axes[row, col].set_xticklabels([])  # Remove default x-axis labels
+        fig = Figure(figsize=(5, 3))
+        ax = fig.add_subplot(111)
+        ax.plot(x_values, y_values)
+        ax.grid(True)
+        ax.set_ylim(min(y_values) - 5, max(y_values) + 5)
+        ax.set_title(TITLES[i])
 
-            # Set custom x-axis labels
+        if row % 2 == 0:
+            ax.xaxis.set_major_locator(plt.MaxNLocator(4))
+            ax.set_xticklabels([])
+
             hours_delta = 6
             last_datetime = datetime.now()
             start_datetime = (last_datetime - timedelta(hours=24)).replace(minute=0, second=0, microsecond=0)
             custom_ticks = [start_datetime + timedelta(hours=i * hours_delta) for i in range(5)]
-            axes[row, col].set_xticks(custom_ticks)
-            axes[row, col].set_xticklabels([dt.strftime('%H:%M') for dt in custom_ticks])
+            ax.set_xticks(custom_ticks)
+            ax.set_xticklabels([dt.strftime('%H:%M') for dt in custom_ticks])
         if row % 2 == 1:
-            # Customize x-axis ticks
-            axes[row, col].xaxis.set_major_locator(plt.MaxNLocator(7))
-            axes[row, col].set_xticklabels([])  # Remove default x-axis labels
+            ax.xaxis.set_major_locator(plt.MaxNLocator(7))
+            ax.set_xticklabels([])
 
-            # Set custom x-axis labels for the last 7 days, at midnight
             midnight_ticks = [datetime.now().replace(hour=0, minute=0, second=0, microsecond=0) - timedelta(days=i) for
                               i in range(7)]
-            axes[row, col].set_xticks(midnight_ticks)
-            axes[row, col].set_xticklabels([dt.strftime('%d/%m') for dt in midnight_ticks])
+            ax.set_xticks(midnight_ticks)
+            ax.set_xticklabels([dt.strftime('%d/%m') for dt in midnight_ticks])
 
-    plt.tight_layout(rect=[0, 0, 1, 0.96])  # Adjust layout to prevent overlap
-    plt.show()
+        canvas = FigureCanvasTkAgg(fig, master=root)
+        canvas.get_tk_widget().grid(row=row, column=col)
 
+    root.update_idletasks()  # Update the window to calculate layout
+    root.update()  # Ensure the window updates before mainloop
+    root.mainloop()
 
-
-
-
-def getExistingData():
+def get_existing_data():
     try:
         with open(JSON_PATH, 'r') as file:
             existing_data = json.load(file)
@@ -146,41 +142,37 @@ def getExistingData():
 
     return existing_data
 
-def constructDataAndShowPlots(dataInOrder):
-    for item in dataInOrder:
+def construct_data_and_show_plots(data_in_order):
+    for item in data_in_order:
         item["timestamp"] = datetime.fromisoformat(item["timestamp"])
     current_time = datetime.now()
-    last_24h = [item for item in dataInOrder if current_time - item["timestamp"] <= timedelta(days=1)]
-    last_7days = [item for item in dataInOrder if current_time - item["timestamp"] <= timedelta(days=7)]
+    last_24h = [item for item in data_in_order if current_time - item["timestamp"] <= timedelta(days=1)]
+    last_7days = [item for item in data_in_order if current_time - item["timestamp"] <= timedelta(days=7)]
 
     lastDayAxis = np.arange(current_time - timedelta(hours=24), current_time, timedelta(hours=6))
 
-
-
-    #last7DaysAxis = np.arange(current_time - timedelta(days=7), current_time, timedelta(hours=12))
-    #last7DayAxisFormatted = [np.datetime64(dt).astype(datetime).strftime("%m/%d") for dt in last7DaysAxis]
-
-    dataSets = [([item["timestamp"] for item in last_24h], [float(x["temperature"]) for x in last_24h]),
-                ([item["timestamp"] for item in last_24h], [float(x["pressure"])/100 for x in last_24h]),
-                ([item["timestamp"] for item in last_24h], [float(x["humidity"]) for x in last_24h]),
-                ([item["timestamp"] for item in last_7days], [float(x["temperature"]) for x in last_7days]),
-                ([item["timestamp"] for item in last_7days], [float(x["pressure"]) / 100 for x in last_7days]),
-                ([item["timestamp"] for item in last_7days], [float(x["humidity"]) for x in last_7days]),
-
-                ]
-    display_multiple_graphs(dataSets)
-
-
+    data_sets = [get_data_set(last_24h, "temperature"),
+                 get_data_set(last_24h, "pressure"),
+                 get_data_set(last_24h, "humidity"),
+                 get_data_set(last_7days, "temperature"),
+                 get_data_set(last_7days, "pressure"),
+                 get_data_set(last_7days, "humidity"),
+                 get_data_set(last_24h, "pm25"),
+                 get_data_set(last_24h, "pm10"),
+                 ([1], [1]),
+                 get_data_set(last_7days, "pm25"),
+                 get_data_set(last_7days, "pm10"),
+                 ]
+    display_plots_in_window(data_sets)
 
 def my_function():
     data = fetch_data_from_api()
-    appendToJsonFile(data)
-    #dataInOrder = getExistingData()
-    #constructDataAndShowPlots(dataInOrder)
-
+    append_to_json_file(data)
+    data_in_order = get_existing_data()
+    construct_data_and_show_plots(data_in_order)
 
 schedule.every(INTERVAL_SECONDS).seconds.do(my_function)
 
 while True:
     schedule.run_pending()
-    time.sleep(1) 
+    time.sleep(1)
