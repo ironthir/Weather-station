@@ -4,6 +4,7 @@ import schedule
 import time
 from datetime import datetime, timedelta
 import matplotlib.pyplot as plt
+from tkinter import ttk
 import numpy as np
 import tkinter as tk
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
@@ -15,6 +16,7 @@ WEATHER_SENSOR_ID = 56950
 JSON_PATH = 'localSensor.json'
 
 INTERVAL_SECONDS = 5
+
 
 def filterPm10(obj):
     return True if obj["value_type"] == "P1" else False
@@ -88,13 +90,36 @@ TITLES = ["Temperatura - 24H",  "Ciśnienie - 24h", "Wilgotność - 24h", "Tempe
           "Wilgotność - 7d", "PM 2.5 - 24h", "PM 10 - 24h", "PLACEHOLDER", "PM 2.5 - 7d", "PM 10 - 7d"]
 Y_LABELS = ["°C", ""]
 
+def on_mouse_wheel(event, canvas):
+    canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
+
+def on_closing(root):
+    root.destroy()
+
+
 def display_plots_in_window(data_sets):
     root = tk.Tk()
     root.title("Pogoda w ostatnim czasie")
-
-
-    num_rows = 4
+    root.protocol("WM_DELETE_WINDOW", lambda: on_closing(root))
     num_cols = 3
+
+    # Create a vertical scrollbar
+    scrollbar = ttk.Scrollbar(root, orient="vertical")
+    scrollbar.pack(side="right", fill="y")
+
+    canvas_frame = tk.Frame(root)
+    canvas_frame.pack(side="left", fill="both", expand=True)
+
+    canvas_frame.grid_rowconfigure(0, weight=1)
+    canvas_frame.grid_columnconfigure(0, weight=1)
+
+    canvas = tk.Canvas(canvas_frame, yscrollcommand=scrollbar.set)
+    canvas.grid(row=0, column=0, sticky="nsew")
+
+    scrollbar.config(command=canvas.yview)
+
+    frame = tk.Frame(canvas)
+    canvas.create_window((0, 0), window=frame, anchor="nw")
 
     for i, (x_values, y_values) in enumerate(data_sets):
         row = i // num_cols
@@ -126,12 +151,22 @@ def display_plots_in_window(data_sets):
             ax.set_xticks(midnight_ticks)
             ax.set_xticklabels([dt.strftime('%d/%m') for dt in midnight_ticks])
 
-        canvas = FigureCanvasTkAgg(fig, master=root)
-        canvas.get_tk_widget().grid(row=row, column=col)
+        canvas_widget = FigureCanvasTkAgg(fig, master=frame)
+        canvas_widget.get_tk_widget().grid(row=row, column=col)
 
-    root.update_idletasks()  # Update the window to calculate layout
-    root.update()  # Ensure the window updates before mainloop
+    frame.update_idletasks()  # Update the frame to calculate layout
+
+    # Set the canvas scrolling region
+    canvas.config(scrollregion=canvas.bbox("all"))
+
+    # Bind mouse wheel event to scroll the canvas
+    canvas.bind_all("<MouseWheel>", lambda event: on_mouse_wheel(event, canvas))
+
     root.mainloop()
+
+# Example usage:
+
+
 
 def get_existing_data():
     try:
