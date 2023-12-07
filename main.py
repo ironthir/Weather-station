@@ -1,3 +1,5 @@
+import sys
+
 import requests
 import json
 import schedule
@@ -9,6 +11,7 @@ import numpy as np
 import tkinter as tk
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from matplotlib.figure import Figure
+from matplotlib.ticker import FuncFormatter
 
 POLLUTION_SENSOR_ID = 56949
 WEATHER_SENSOR_ID = 56950
@@ -27,15 +30,20 @@ def filterPm25(obj):
 def filterByTimestamp(obj, timestamp):
     return obj["timestamp"] == timestamp
 
+
 def floor_to_nearest_minute(timestamp_str):
     timestamp = datetime.strptime(timestamp_str, '%Y-%m-%d %H:%M:%S')
     minute_difference = timestamp.second + timestamp.microsecond / 1e6
     rounded_timestamp = timestamp - timedelta(seconds=minute_difference)
     return rounded_timestamp.strftime('%Y-%m-%d %H:%M:%S')
 
+
 def get_data_set(data, prop):
     timestamps = [item["timestamp"] for item in data if prop in item]
-    values = [float(x[prop]) for x in data if prop in x]
+    if(prop == "pressure"):
+        values = [float(x[prop])/100 for x in data if prop in x]
+    else:
+        values = [float(x[prop]) for x in data if prop in x]
     return (timestamps, values)
 
 def fetch_data_from_api():
@@ -93,17 +101,15 @@ Y_LABELS = ["°C", ""]
 def on_mouse_wheel(event, canvas):
     canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
 
-def on_closing(root):
-    root.destroy()
+def on_closing():
+    sys.exit()
 
 
-def display_plots_in_window(data_sets):
-    root = tk.Tk()
-    root.title("Pogoda w ostatnim czasie")
-    root.protocol("WM_DELETE_WINDOW", lambda: on_closing(root))
+
+def display_plots_in_window(data_sets, root, most_recent):
+
     num_cols = 3
 
-    # Create a vertical scrollbar
     scrollbar = ttk.Scrollbar(root, orient="vertical")
     scrollbar.pack(side="right", fill="y")
 
@@ -118,19 +124,42 @@ def display_plots_in_window(data_sets):
 
     scrollbar.config(command=canvas.yview)
 
-    frame = tk.Frame(canvas)
+    frame = tk.Frame(canvas, bg="white")
     canvas.create_window((0, 0), window=frame, anchor="nw")
 
     for i, (x_values, y_values) in enumerate(data_sets):
         row = i // num_cols
         col = i % num_cols
+        if(x_values is None or y_values is None):
+            timestamp = most_recent["timestamp"].strftime("%d/%m/%Y %H:%M")
+            recentTemp = most_recent["temperature"]
+            recentPressure = float(most_recent["pressure"])/100
+            recentHumidity = most_recent["humidity"]
+            recentPm25 = most_recent["pm25"]
+            recentPm10 = most_recent["pm10"]
+            label = tk.Label(frame, bg="white", text=f"Ostatni pomiar: {timestamp}\nTemperatura: {recentTemp} °C\nCiśnienie: {recentPressure} hPa\nWilgotność: {recentHumidity} %H\nPM 2.5: {recentPm25} µg/m³\nPM 10: {recentPm10} µg/m³\n", font=("Helvetica", 25), justify="left")
+            label.grid(row=row, column=col, sticky="w")
+            continue
 
-        fig = Figure(figsize=(5, 3))
+        def custom_formatter(value, pos, curr_col = col, curr_row = row):
+            if (curr_col % 3 == 0 and curr_row < 2):
+                return f"{value} °C"
+            elif curr_col % 3 == 1 and curr_row < 2:
+                return f"{value} hPa"
+            elif curr_col % 3 == 2 and curr_row < 2:
+                return f"{value} %H"
+            else:
+                return f"{value} µg/m³"
+
+        fig = Figure(figsize=(6.5, 3))
+        fig.subplots_adjust(left=0.15)
         ax = fig.add_subplot(111)
         ax.plot(x_values, y_values)
         ax.grid(True)
         ax.set_ylim(min(y_values) - 5, max(y_values) + 5)
         ax.set_title(TITLES[i])
+
+        ax.yaxis.set_major_formatter(FuncFormatter(custom_formatter))
 
         if row % 2 == 0:
             ax.xaxis.set_major_locator(plt.MaxNLocator(4))
@@ -154,18 +183,11 @@ def display_plots_in_window(data_sets):
         canvas_widget = FigureCanvasTkAgg(fig, master=frame)
         canvas_widget.get_tk_widget().grid(row=row, column=col)
 
-    frame.update_idletasks()  # Update the frame to calculate layout
+    frame.update_idletasks()
 
-    # Set the canvas scrolling region
     canvas.config(scrollregion=canvas.bbox("all"))
-
-    # Bind mouse wheel event to scroll the canvas
     canvas.bind_all("<MouseWheel>", lambda event: on_mouse_wheel(event, canvas))
-
     root.mainloop()
-
-# Example usage:
-
 
 
 def get_existing_data():
@@ -177,14 +199,13 @@ def get_existing_data():
 
     return existing_data
 
-def construct_data_and_show_plots(data_in_order):
+def construct_data_and_show_plots(data_in_order, root):
     for item in data_in_order:
         item["timestamp"] = datetime.fromisoformat(item["timestamp"])
     current_time = datetime.now()
-    last_24h = [item for item in data_in_order if current_time - item["timestamp"] <= timedelta(days=1)]
-    last_7days = [item for item in data_in_order if current_time - item["timestamp"] <= timedelta(days=7)]
-
-    lastDayAxis = np.arange(current_time - timedelta(hours=24), current_time, timedelta(hours=6))
+    last_24h = [item for index, item in enumerate(data_in_order) if current_time - item["timestamp"] <= timedelta(days=1) and index % 3 ==0]
+    last_7days = [item for index, item in enumerate(data_in_order) if
+                  current_time - item["timestamp"] <= timedelta(days=7) and index % 5 == 0]
 
     data_sets = [get_data_set(last_24h, "temperature"),
                  get_data_set(last_24h, "pressure"),
@@ -194,17 +215,34 @@ def construct_data_and_show_plots(data_in_order):
                  get_data_set(last_7days, "humidity"),
                  get_data_set(last_24h, "pm25"),
                  get_data_set(last_24h, "pm10"),
-                 ([1], [1]),
+                 (None, None),
                  get_data_set(last_7days, "pm25"),
                  get_data_set(last_7days, "pm10"),
                  ]
-    display_plots_in_window(data_sets)
+    display_plots_in_window(data_sets, root, most_recent=last_24h[-1])
+
+
+
+
+root = tk.Tk()
+root.title("Pogoda w ostatnim czasie")
+root.protocol("WM_DELETE_WINDOW", lambda: on_closing())
+
+root.configure(bg="white", width=1920, height=1000)
+data = get_existing_data()
+construct_data_and_show_plots(data, root)
+
+
+def on_exit():
+    sys.exit()
+
 
 def my_function():
     data = fetch_data_from_api()
     append_to_json_file(data)
     data_in_order = get_existing_data()
-    construct_data_and_show_plots(data_in_order)
+    construct_data_and_show_plots(data_in_order, root)
+
 
 schedule.every(INTERVAL_SECONDS).seconds.do(my_function)
 
