@@ -18,7 +18,7 @@ WEATHER_SENSOR_ID = 56950
 
 JSON_PATH = 'localSensor.json'
 
-INTERVAL_SECONDS = 5
+INTERVAL_SECONDS = 300
 
 
 def filterPm10(obj):
