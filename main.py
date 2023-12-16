@@ -40,10 +40,25 @@ def floor_to_nearest_minute(timestamp_str):
 
 def get_data_set(data, prop):
     timestamps = [item["timestamp"] for item in data if prop in item]
-    if(prop == "pressure"):
-        values = [float(x[prop])/100 for x in data if prop in x]
+
+    if prop == "pressure":
+        values = [float(x[prop]) / 100 for x in data if prop in x]
     else:
         values = [float(x[prop]) for x in data if prop in x]
+
+    # Ensure timestamps are sorted
+    sorted_indices = np.argsort(timestamps)
+    timestamps = [timestamps[i] for i in sorted_indices]
+    values = [values[i] for i in sorted_indices]
+
+    # Insert NaN for gaps larger than 3 minutes
+    for i in range(1, len(timestamps)):
+        time_diff = timestamps[i] - timestamps[i - 1]
+        if time_diff > timedelta(minutes=30):
+            print(time_diff, timestamps[i - 1] + timedelta(minutes=3))
+            timestamps.insert(i, timestamps[i - 1] + timedelta(minutes=3))
+            values.insert(i, np.nan)
+
     return (timestamps, values)
 
 def fetch_data_from_api():
@@ -101,6 +116,9 @@ Y_LABELS = ["°C", ""]
 def on_mouse_wheel(event, canvas):
     canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
 
+def on_horizontal_scroll(*args, canvas):
+    canvas.xview(*args)
+
 def on_closing():
     sys.exit()
 
@@ -110,8 +128,11 @@ def display_plots_in_window(data_sets, root, most_recent):
 
     num_cols = 3
 
-    scrollbar = ttk.Scrollbar(root, orient="vertical")
-    scrollbar.pack(side="right", fill="y")
+    # Create vertical and horizontal scrollbars
+    v_scrollbar = ttk.Scrollbar(root, orient="vertical")
+    h_scrollbar = ttk.Scrollbar(root, orient="horizontal")
+    v_scrollbar.pack(side="right", fill="y")
+    h_scrollbar.pack(side="bottom", fill="x")
 
     canvas_frame = tk.Frame(root)
     canvas_frame.pack(side="left", fill="both", expand=True)
@@ -119,10 +140,12 @@ def display_plots_in_window(data_sets, root, most_recent):
     canvas_frame.grid_rowconfigure(0, weight=1)
     canvas_frame.grid_columnconfigure(0, weight=1)
 
-    canvas = tk.Canvas(canvas_frame, yscrollcommand=scrollbar.set)
+    canvas = tk.Canvas(canvas_frame, yscrollcommand=v_scrollbar.set, xscrollcommand=h_scrollbar.set)
     canvas.grid(row=0, column=0, sticky="nsew")
 
-    scrollbar.config(command=canvas.yview)
+    v_scrollbar.config(command=canvas.yview)
+    h_scrollbar.config(command=lambda *args: on_horizontal_scroll(canvas=canvas, *args))
+
 
     frame = tk.Frame(canvas, bg="white")
     canvas.create_window((0, 0), window=frame, anchor="nw")
@@ -141,7 +164,7 @@ def display_plots_in_window(data_sets, root, most_recent):
             label.grid(row=row, column=col, sticky="w")
             continue
 
-        def custom_formatter(value, pos, curr_col = col, curr_row = row):
+        def custom_formatter(value, pos, curr_col=col, curr_row=row):
             if (curr_col % 3 == 0 and curr_row < 2):
                 return f"{value} °C"
             elif curr_col % 3 == 1 and curr_row < 2:
@@ -181,14 +204,13 @@ def display_plots_in_window(data_sets, root, most_recent):
             ax.set_xticklabels([dt.strftime('%d/%m') for dt in midnight_ticks])
 
         canvas_widget = FigureCanvasTkAgg(fig, master=frame)
-        canvas_widget.get_tk_widget().grid(row=row, column=col)
+        canvas_widget.get_tk_widget().grid(row=row, column=col, padx=5, pady=5)
 
     frame.update_idletasks()
 
     canvas.config(scrollregion=canvas.bbox("all"))
     canvas.bind_all("<MouseWheel>", lambda event: on_mouse_wheel(event, canvas))
     root.mainloop()
-
 
 def get_existing_data():
     try:
@@ -219,6 +241,7 @@ def construct_data_and_show_plots(data_in_order, root):
                  get_data_set(last_7days, "pm25"),
                  get_data_set(last_7days, "pm10"),
                  ]
+
     display_plots_in_window(data_sets, root, most_recent=last_24h[-1])
 
 
