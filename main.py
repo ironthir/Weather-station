@@ -55,7 +55,6 @@ def get_data_set(data, prop):
     for i in range(1, len(timestamps)):
         time_diff = timestamps[i] - timestamps[i - 1]
         if time_diff > timedelta(minutes=30):
-            print(time_diff, timestamps[i - 1] + timedelta(minutes=3))
             timestamps.insert(i, timestamps[i - 1] + timedelta(minutes=3))
             values.insert(i, np.nan)
 
